@@ -33,9 +33,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(Arrays.asList(
-                "https://portal.namsa.ggff.net", // deployed frontend
+                "https://www.mlmusik.com/", // deployed frontend
                 "http://localhost:8080",     // local dev (as specified)
-                "http://localhost:5173",     // default Vite port
+                "https://mlmusik.com",     // default Vite port
                 "http://localhost:3000"      // alternative dev port
         ));
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
