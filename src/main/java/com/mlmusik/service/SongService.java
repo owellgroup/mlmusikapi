@@ -1,0 +1,131 @@
+package com.mlmusik.service;
+
+import com.mlmusik.model.Song;
+import com.mlmusik.repository.SongRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+public class SongService {
+
+    @Autowired
+    private SongRepository songRepository;
+
+    @Autowired
+    private FileStorageService fileStorageService;
+
+    @Autowired
+    private MP3MetadataService mp3MetadataService;
+
+    public List<Song> getAllSongs() {
+        return songRepository.findAll();
+    }
+
+    public Optional<Song> getSongById(Long id) {
+        return songRepository.findById(id);
+    }
+
+    public Song createSingleTrack(String title, String artist, String featuredArtists,
+                                 String producer, MultipartFile coverArt, MultipartFile mp3File) throws Exception {
+        // Store cover art
+        String coverArtPath = fileStorageService.storeCoverArt(coverArt);
+
+        // Store MP3 file
+        String mp3FilePath = fileStorageService.storeSong(mp3File);
+
+        // Set metadata and embed cover art
+        mp3MetadataService.setMetadata(mp3FilePath, title, artist, featuredArtists, producer, null);
+        mp3MetadataService.embedCoverArt(mp3FilePath, coverArtPath);
+
+        // Create song (no album, no track number)
+        Song song = new Song(title, artist, featuredArtists, producer, null, mp3FilePath, coverArtPath);
+        return songRepository.save(song);
+    }
+
+    public Song updateSong(Long id, String title, String artist, String featuredArtists, String producer) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            song.setTitle(title);
+            song.setArtist(artist);
+            song.setFeaturedArtists(featuredArtists);
+            song.setProducer(producer);
+            return songRepository.save(song);
+        }
+        return null;
+    }
+
+    public void deleteSong(Long id) {
+        songRepository.deleteById(id);
+    }
+
+    public Song incrementViews(Long id) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            song.setViews(song.getViews() + 1);
+            return songRepository.save(song);
+        }
+        return null;
+    }
+
+    public Song incrementLikes(Long id) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            song.setLikes(song.getLikes() + 1);
+            return songRepository.save(song);
+        }
+        return null;
+    }
+
+    public Song incrementDislikes(Long id) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            song.setDislikes(song.getDislikes() + 1);
+            return songRepository.save(song);
+        }
+        return null;
+    }
+
+    public Song incrementDownloads(Long id) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            song.setDownloads(song.getDownloads() + 1);
+            return songRepository.save(song);
+        }
+        return null;
+    }
+
+    public Song incrementShares(Long id) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            song.setShares(song.getShares() + 1);
+            return songRepository.save(song);
+        }
+        return null;
+    }
+
+    public File getSongFile(Long id) {
+        Optional<Song> songOpt = songRepository.findById(id);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            return fileStorageService.getFile(song.getFilePath());
+        }
+        return null;
+    }
+
+    public List<Song> getSongsByAlbum(Long albumId) {
+        return songRepository.findByAlbumId(albumId);
+    }
+}
+
+

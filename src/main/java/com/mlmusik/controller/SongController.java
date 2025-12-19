@@ -1,0 +1,211 @@
+package com.mlmusik.controller;
+
+import com.mlmusik.model.Song;
+import com.mlmusik.service.SongService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/songs")
+public class SongController {
+
+    @Autowired
+    private SongService songService;
+
+    @PostMapping("/upload")
+    public ResponseEntity<Map<String, Object>> uploadSingleTrack(
+            @RequestParam("title") String title,
+            @RequestParam("artist") String artist,
+            @RequestParam(value = "featuredArtists", required = false) String featuredArtists,
+            @RequestParam("producer") String producer,
+            @RequestParam("coverArt") MultipartFile coverArt,
+            @RequestParam("mp3File") MultipartFile mp3File) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Song song = songService.createSingleTrack(title, artist, featuredArtists, producer, coverArt, mp3File);
+            response.put("success", true);
+            response.put("message", "Single track uploaded successfully");
+            response.put("song", song);
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "Failed to upload track: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+    }
+
+    @GetMapping
+    public ResponseEntity<List<Song>> getAllSongs() {
+        return ResponseEntity.ok(songService.getAllSongs());
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Song> getSongById(@PathVariable Long id) {
+        return songService.getSongById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/album/{albumId}")
+    public ResponseEntity<List<Song>> getSongsByAlbum(@PathVariable Long albumId) {
+        return ResponseEntity.ok(songService.getSongsByAlbum(albumId));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<Song> updateSong(@PathVariable Long id, @RequestBody Map<String, String> songData) {
+        Song song = songService.updateSong(
+                id,
+                songData.get("title"),
+                songData.get("artist"),
+                songData.get("featuredArtists"),
+                songData.get("producer")
+        );
+        if (song != null) {
+            return ResponseEntity.ok(song);
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteSong(@PathVariable Long id) {
+        songService.deleteSong(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/play")
+    public ResponseEntity<Map<String, Object>> playSong(@PathVariable Long id) {
+        Map<String, Object> response = new HashMap<>();
+        Song song = songService.incrementViews(id);
+        if (song != null) {
+            response.put("success", true);
+            response.put("song", song);
+            return ResponseEntity.ok(response);
+        }
+        response.put("success", false);
+        response.put("message", "Song not found");
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/like")
+    public ResponseEntity<Map<String, Object>> likeSong(@PathVariable Long id) {
+        Map<String, Object> response = new HashMap<>();
+        Song song = songService.incrementLikes(id);
+        if (song != null) {
+            response.put("success", true);
+            response.put("song", song);
+            return ResponseEntity.ok(response);
+        }
+        response.put("success", false);
+        response.put("message", "Song not found");
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/dislike")
+    public ResponseEntity<Map<String, Object>> dislikeSong(@PathVariable Long id) {
+        Map<String, Object> response = new HashMap<>();
+        Song song = songService.incrementDislikes(id);
+        if (song != null) {
+            response.put("success", true);
+            response.put("song", song);
+            return ResponseEntity.ok(response);
+        }
+        response.put("success", false);
+        response.put("message", "Song not found");
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/{id}/share")
+    public ResponseEntity<Map<String, Object>> shareSong(@PathVariable Long id) {
+        Map<String, Object> response = new HashMap<>();
+        Song song = songService.incrementShares(id);
+        if (song != null) {
+            String shareableUrl = "http://localhost:8080/api/songs/" + id;
+            response.put("success", true);
+            response.put("shareableUrl", shareableUrl);
+            response.put("song", song);
+            return ResponseEntity.ok(response);
+        }
+        response.put("success", false);
+        response.put("message", "Song not found");
+        return ResponseEntity.notFound().build();
+    }
+
+    @GetMapping("/{id}/download")
+    public ResponseEntity<Resource> downloadSong(@PathVariable Long id) {
+        File songFile = songService.getSongFile(id);
+        if (songFile != null && songFile.exists()) {
+            songService.incrementDownloads(id);
+            
+            // Get song to use its title and artist as filename
+            String filename = songFile.getName(); // Default to stored filename
+            java.util.Optional<Song> songOpt = songService.getSongById(id);
+            if (songOpt.isPresent()) {
+                Song song = songOpt.get();
+                // Create filename in format: "Artist - Title.mp3"
+                String artist = song.getArtist() != null ? sanitizeFilename(song.getArtist()) : "";
+                String title = song.getTitle() != null ? sanitizeFilename(song.getTitle()) : "song";
+                
+                // Build filename
+                if (!artist.isEmpty()) {
+                    filename = artist + " - " + title;
+                } else {
+                    filename = title;
+                }
+                
+                // Add extension
+                String extension = "";
+                int lastDot = songFile.getName().lastIndexOf('.');
+                if (lastDot > 0) {
+                    extension = songFile.getName().substring(lastDot);
+                } else {
+                    extension = ".mp3";
+                }
+                filename = filename + extension;
+            }
+            
+            Resource resource = new FileSystemResource(songFile);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("audio/mpeg"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .body(resource);
+        }
+        return ResponseEntity.notFound().build();
+    }
+    
+    /**
+     * Sanitizes a filename by removing or replacing invalid characters
+     */
+    private String sanitizeFilename(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return "song";
+        }
+        // Replace invalid filename characters with underscore
+        // Windows/Linux invalid chars: < > : " / \ | ? *
+        String sanitized = filename.replaceAll("[<>:\"/\\\\|?*]", "_");
+        // Remove leading/trailing dots and spaces
+        sanitized = sanitized.replaceAll("^\\.+|\\.+$", "").trim();
+        // Limit length to avoid filesystem issues (max 255 chars, but keep it shorter)
+        if (sanitized.length() > 200) {
+            sanitized = sanitized.substring(0, 200);
+        }
+        // If empty after sanitization, use default
+        if (sanitized.isEmpty()) {
+            sanitized = "song";
+        }
+        return sanitized;
+    }
+}
+
+
