@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -109,9 +111,33 @@ public class SongService {
         if (songOpt.isPresent()) {
             Song song = songOpt.get();
             song.setShares(song.getShares() + 1);
+            
+            // Generate a random share token if it doesn't exist
+            if (song.getShareToken() == null || song.getShareToken().isEmpty()) {
+                song.setShareToken(generateShareToken());
+            }
+            
             return songRepository.save(song);
         }
         return null;
+    }
+
+    /**
+     * Generates a random URL-safe token for sharing
+     */
+    private String generateShareToken() {
+        SecureRandom random = new SecureRandom();
+        byte[] bytes = new byte[16];
+        random.nextBytes(bytes);
+        // Use Base64 URL-safe encoding to create a random token
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /**
+     * Finds a song by its share token
+     */
+    public Optional<Song> getSongByShareToken(String shareToken) {
+        return songRepository.findByShareToken(shareToken);
     }
 
     public File getSongFile(Long id) {

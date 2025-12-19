@@ -28,6 +28,9 @@ public class SongController {
     @Value("${app.base-url}")
     private String baseUrl;
 
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
+
     @PostMapping("/upload")
     public ResponseEntity<Map<String, Object>> uploadSingleTrack(
             @RequestParam("title") String title,
@@ -134,10 +137,10 @@ public class SongController {
     public ResponseEntity<Map<String, Object>> shareSong(@PathVariable Long id) {
         Map<String, Object> response = new HashMap<>();
         Song song = songService.incrementShares(id);
-        if (song != null) {
-            // Ensure baseUrl doesn't have trailing slash, then append /api/songs/{id}
-            String cleanBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-            String shareableUrl = cleanBaseUrl + "/api/songs/" + id;
+        if (song != null && song.getShareToken() != null) {
+            // Generate shareable link using frontend URL (hides API URL)
+            String cleanFrontendUrl = frontendUrl.endsWith("/") ? frontendUrl.substring(0, frontendUrl.length() - 1) : frontendUrl;
+            String shareableUrl = cleanFrontendUrl + "/share/" + song.getShareToken();
             response.put("success", true);
             response.put("shareableUrl", shareableUrl);
             response.put("song", song);
@@ -146,6 +149,26 @@ public class SongController {
         response.put("success", false);
         response.put("message", "Song not found");
         return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * API endpoint to resolve share token and get song information
+     * Frontend can call this to get the song ID from a share token
+     */
+    @GetMapping("/share/{token}/resolve")
+    public ResponseEntity<Map<String, Object>> resolveShareToken(@PathVariable String token) {
+        Map<String, Object> response = new HashMap<>();
+        java.util.Optional<Song> songOpt = songService.getSongByShareToken(token);
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            response.put("success", true);
+            response.put("songId", song.getId());
+            response.put("song", song);
+            return ResponseEntity.ok(response);
+        }
+        response.put("success", false);
+        response.put("message", "Invalid share token");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 
     @GetMapping("/{id}/download")

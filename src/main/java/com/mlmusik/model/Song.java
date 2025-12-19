@@ -49,6 +49,9 @@ public class Song {
     @Column(name = "shares")
     private Long shares = 0L;
 
+    @Column(name = "share_token", unique = true)
+    private String shareToken;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "album_id")
     @JsonBackReference
@@ -179,6 +182,14 @@ public class Song {
 
     public void setShares(Long shares) {
         this.shares = shares;
+    }
+
+    public String getShareToken() {
+        return shareToken;
+    }
+
+    public void setShareToken(String shareToken) {
+        this.shareToken = shareToken;
     }
 
     public Album getAlbum() {
