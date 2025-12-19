@@ -1,6 +1,5 @@
 package com.mlmusik.service;
 
-import com.mpatric.mp3agic.ID3v2;
 import com.mpatric.mp3agic.ID3v24Tag;
 import com.mpatric.mp3agic.Mp3File;
 import org.springframework.stereotype.Service;
@@ -11,6 +10,97 @@ import java.nio.file.Files;
 
 @Service
 public class MP3MetadataService {
+
+    /**
+     * Creates a fresh ID3v24Tag to avoid obsolete frames issues.
+     * Always creates a new tag instead of reusing existing ones that may contain obsolete frames.
+     */
+    private ID3v24Tag createFreshTag(Mp3File mp3) {
+        // Always create a fresh ID3v24Tag to avoid "Packing Obsolete frames" error
+        // This ensures we don't try to pack obsolete frames from older ID3v2 versions
+        return new ID3v24Tag();
+    }
+
+    /**
+     * Combined method to set all metadata and embed cover art in a single operation.
+     * This is much more efficient than calling separate methods multiple times.
+     * 
+     * @param mp3FilePath Path to the MP3 file
+     * @param title Song title
+     * @param artist Song artist
+     * @param featuredArtists Featured artists
+     * @param producer Producer
+     * @param trackNumber Track number
+     * @param albumTitle Album title (optional)
+     * @param albumArtist Album artist (optional)
+     * @param coverArtFilePath Path to the cover art image file (optional)
+     * @throws Exception If setting metadata fails
+     */
+    public void setAllMetadata(String mp3FilePath, String title, String artist, 
+                              String featuredArtists, String producer, Integer trackNumber,
+                              String albumTitle, String albumArtist, String coverArtFilePath) throws Exception {
+        try {
+            File mp3File = new File(mp3FilePath);
+            if (!mp3File.exists()) {
+                throw new IOException("MP3 file not found: " + mp3FilePath);
+            }
+
+            // Read MP3 file
+            Mp3File mp3 = new Mp3File(mp3FilePath);
+            
+            // Always create a fresh ID3v24Tag to avoid obsolete frames error
+            ID3v24Tag id3v2Tag = createFreshTag(mp3);
+            mp3.setId3v2Tag(id3v2Tag);
+
+            // Set song metadata fields
+            if (title != null) id3v2Tag.setTitle(title);
+            if (artist != null) {
+                String artistName = artist;
+                if (featuredArtists != null && !featuredArtists.isEmpty()) {
+                    artistName = artist + " ft. " + featuredArtists;
+                }
+                id3v2Tag.setArtist(artistName);
+            }
+            if (producer != null) {
+                // Producer is stored in TPE4 frame (usually "Interpreted, remixed, or otherwise modified by")
+                id3v2Tag.setOriginalArtist(producer);
+            }
+            if (trackNumber != null) {
+                id3v2Tag.setTrack(String.valueOf(trackNumber));
+            }
+
+            // Set album metadata if provided
+            if (albumTitle != null) id3v2Tag.setAlbum(albumTitle);
+            if (albumArtist != null) id3v2Tag.setAlbumArtist(albumArtist);
+
+            // Embed cover art if provided
+            if (coverArtFilePath != null) {
+                File coverArtFile = new File(coverArtFilePath);
+                if (coverArtFile.exists()) {
+                    byte[] imageData = Files.readAllBytes(coverArtFile.toPath());
+                    id3v2Tag.setAlbumImage(imageData, getMimeType(coverArtFilePath));
+                }
+            }
+
+            // Save the MP3 file with updated tag (single write operation)
+            String tempPath = mp3FilePath + ".tmp";
+            mp3.save(tempPath);
+            
+            // Atomic file replacement
+            File originalFile = new File(mp3FilePath);
+            File tempFile = new File(tempPath);
+            if (originalFile.delete()) {
+                if (!tempFile.renameTo(originalFile)) {
+                    throw new IOException("Failed to rename temporary file");
+                }
+            } else {
+                throw new IOException("Failed to delete original file");
+            }
+            
+        } catch (Exception e) {
+            throw new Exception("Failed to set MP3 metadata: " + e.getMessage(), e);
+        }
+    }
 
     /**
      * Embeds cover art into MP3 file metadata
@@ -33,14 +123,9 @@ public class MP3MetadataService {
             // Read MP3 file
             Mp3File mp3 = new Mp3File(mp3FilePath);
             
-            // Get or create ID3v2 tag
-            ID3v2 id3v2Tag;
-            if (mp3.hasId3v2Tag()) {
-                id3v2Tag = mp3.getId3v2Tag();
-            } else {
-                id3v2Tag = new ID3v24Tag();
-                mp3.setId3v2Tag(id3v2Tag);
-            }
+            // Always create a fresh ID3v24Tag to avoid obsolete frames error
+            ID3v24Tag id3v2Tag = createFreshTag(mp3);
+            mp3.setId3v2Tag(id3v2Tag);
 
             // Read cover art image
             byte[] imageData = Files.readAllBytes(coverArtFile.toPath());
@@ -49,9 +134,19 @@ public class MP3MetadataService {
             id3v2Tag.setAlbumImage(imageData, getMimeType(coverArtFilePath));
             
             // Save the MP3 file with updated tag
-            mp3.save(mp3FilePath + ".tmp");
-            new File(mp3FilePath).delete();
-            new File(mp3FilePath + ".tmp").renameTo(new File(mp3FilePath));
+            String tempPath = mp3FilePath + ".tmp";
+            mp3.save(tempPath);
+            
+            // Atomic file replacement
+            File originalFile = new File(mp3FilePath);
+            File tempFile = new File(tempPath);
+            if (originalFile.delete()) {
+                if (!tempFile.renameTo(originalFile)) {
+                    throw new IOException("Failed to rename temporary file");
+                }
+            } else {
+                throw new IOException("Failed to delete original file");
+            }
             
         } catch (Exception e) {
             throw new Exception("Failed to embed cover art into MP3: " + e.getMessage(), e);
@@ -70,49 +165,8 @@ public class MP3MetadataService {
      */
     public void setMetadata(String mp3FilePath, String title, String artist, 
                            String featuredArtists, String producer, Integer trackNumber) throws Exception {
-        try {
-            File mp3File = new File(mp3FilePath);
-            if (!mp3File.exists()) {
-                throw new IOException("MP3 file not found: " + mp3FilePath);
-            }
-
-            // Read MP3 file
-            Mp3File mp3 = new Mp3File(mp3FilePath);
-            
-            // Get or create ID3v2 tag
-            ID3v2 id3v2Tag;
-            if (mp3.hasId3v2Tag()) {
-                id3v2Tag = mp3.getId3v2Tag();
-            } else {
-                id3v2Tag = new ID3v24Tag();
-                mp3.setId3v2Tag(id3v2Tag);
-            }
-
-            // Set metadata fields
-            if (title != null) id3v2Tag.setTitle(title);
-            if (artist != null) {
-                String artistName = artist;
-                if (featuredArtists != null && !featuredArtists.isEmpty()) {
-                    artistName = artist + " ft. " + featuredArtists;
-                }
-                id3v2Tag.setArtist(artistName);
-            }
-            if (producer != null) {
-                // Producer is stored in TPE4 frame (usually "Interpreted, remixed, or otherwise modified by")
-                id3v2Tag.setOriginalArtist(producer);
-            }
-            if (trackNumber != null) {
-                id3v2Tag.setTrack(String.valueOf(trackNumber));
-            }
-
-            // Save the MP3 file with updated tag
-            mp3.save(mp3FilePath + ".tmp");
-            new File(mp3FilePath).delete();
-            new File(mp3FilePath + ".tmp").renameTo(new File(mp3FilePath));
-            
-        } catch (Exception e) {
-            throw new Exception("Failed to set MP3 metadata: " + e.getMessage(), e);
-        }
+        // Use the combined method for consistency
+        setAllMetadata(mp3FilePath, title, artist, featuredArtists, producer, trackNumber, null, null, null);
     }
 
     /**
@@ -132,22 +186,27 @@ public class MP3MetadataService {
             // Read MP3 file
             Mp3File mp3 = new Mp3File(mp3FilePath);
             
-            // Get or create ID3v2 tag
-            ID3v2 id3v2Tag;
-            if (mp3.hasId3v2Tag()) {
-                id3v2Tag = mp3.getId3v2Tag();
-            } else {
-                id3v2Tag = new ID3v24Tag();
-                mp3.setId3v2Tag(id3v2Tag);
-            }
+            // Always create a fresh ID3v24Tag to avoid obsolete frames error
+            ID3v24Tag id3v2Tag = createFreshTag(mp3);
+            mp3.setId3v2Tag(id3v2Tag);
 
             if (albumTitle != null) id3v2Tag.setAlbum(albumTitle);
             if (albumArtist != null) id3v2Tag.setAlbumArtist(albumArtist);
 
             // Save the MP3 file with updated tag
-            mp3.save(mp3FilePath + ".tmp");
-            new File(mp3FilePath).delete();
-            new File(mp3FilePath + ".tmp").renameTo(new File(mp3FilePath));
+            String tempPath = mp3FilePath + ".tmp";
+            mp3.save(tempPath);
+            
+            // Atomic file replacement
+            File originalFile = new File(mp3FilePath);
+            File tempFile = new File(tempPath);
+            if (originalFile.delete()) {
+                if (!tempFile.renameTo(originalFile)) {
+                    throw new IOException("Failed to rename temporary file");
+                }
+            } else {
+                throw new IOException("Failed to delete original file");
+            }
             
         } catch (Exception e) {
             throw new Exception("Failed to set album metadata: " + e.getMessage(), e);

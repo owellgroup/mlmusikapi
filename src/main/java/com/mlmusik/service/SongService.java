@@ -38,9 +38,9 @@ public class SongService {
         // Store MP3 file
         String mp3FilePath = fileStorageService.storeSong(mp3File);
 
-        // Set metadata and embed cover art
-        mp3MetadataService.setMetadata(mp3FilePath, title, artist, featuredArtists, producer, null);
-        mp3MetadataService.embedCoverArt(mp3FilePath, coverArtPath);
+        // Set all metadata and embed cover art in a single operation (much faster)
+        mp3MetadataService.setAllMetadata(mp3FilePath, title, artist, featuredArtists, producer, null, 
+                                         null, null, coverArtPath);
 
         // Create song (no album, no track number)
         Song song = new Song(title, artist, featuredArtists, producer, null, mp3FilePath, coverArtPath);
