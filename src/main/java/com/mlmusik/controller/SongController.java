@@ -138,9 +138,10 @@ public class SongController {
         Map<String, Object> response = new HashMap<>();
         Song song = songService.incrementShares(id);
         if (song != null && song.getShareToken() != null) {
-            // Generate shareable link using frontend URL (hides API URL)
+            // Generate shareable link using frontend URL with token as query parameter
+            // This ensures it works even if /share route doesn't exist on frontend yet
             String cleanFrontendUrl = frontendUrl.endsWith("/") ? frontendUrl.substring(0, frontendUrl.length() - 1) : frontendUrl;
-            String shareableUrl = cleanFrontendUrl + "/share/" + song.getShareToken();
+            String shareableUrl = cleanFrontendUrl + "/songs?share=" + song.getShareToken();
             response.put("success", true);
             response.put("shareableUrl", shareableUrl);
             response.put("song", song);
@@ -149,6 +150,32 @@ public class SongController {
         response.put("success", false);
         response.put("message", "Song not found");
         return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * Redirect endpoint for share links - redirects to frontend website
+     * This endpoint can be used as a fallback if frontend route doesn't exist yet
+     * Always redirects to /songs page (main website) to avoid 404 errors
+     */
+    @GetMapping("/share/{token}")
+    public ResponseEntity<Void> redirectShareLink(@PathVariable String token) {
+        java.util.Optional<Song> songOpt = songService.getSongByShareToken(token);
+        String cleanFrontendUrl = frontendUrl.endsWith("/") ? frontendUrl.substring(0, frontendUrl.length() - 1) : frontendUrl;
+        
+        if (songOpt.isPresent()) {
+            Song song = songOpt.get();
+            // Redirect to songs page with share token as query parameter
+            // Frontend can then handle the token and navigate to the specific song
+            String redirectUrl = cleanFrontendUrl + "/songs?share=" + token;
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .header(HttpHeaders.LOCATION, redirectUrl)
+                    .build();
+        }
+        // If token not found, redirect to songs page (main website)
+        String redirectUrl = cleanFrontendUrl + "/songs";
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .header(HttpHeaders.LOCATION, redirectUrl)
+                .build();
     }
 
     /**
