@@ -3,6 +3,7 @@ package com.mlmusik.controller;
 import com.mlmusik.model.Song;
 import com.mlmusik.service.SongService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -23,6 +24,9 @@ public class SongController {
 
     @Autowired
     private SongService songService;
+
+    @Value("${app.base-url}")
+    private String baseUrl;
 
     @PostMapping("/upload")
     public ResponseEntity<Map<String, Object>> uploadSingleTrack(
@@ -131,7 +135,9 @@ public class SongController {
         Map<String, Object> response = new HashMap<>();
         Song song = songService.incrementShares(id);
         if (song != null) {
-            String shareableUrl = "http://localhost:8080/api/songs/" + id;
+            // Ensure baseUrl doesn't have trailing slash, then append /api/songs/{id}
+            String cleanBaseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+            String shareableUrl = cleanBaseUrl + "/api/songs/" + id;
             response.put("success", true);
             response.put("shareableUrl", shareableUrl);
             response.put("song", song);
