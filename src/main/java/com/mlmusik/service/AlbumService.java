@@ -63,15 +63,19 @@ public class AlbumService {
             Integer trackNumber = songTrackNumbers[i];
             MultipartFile mp3File = mp3Files[i];
 
-            // Store MP3 file
-            String mp3FilePath = fileStorageService.storeSong(mp3File);
+            // Store MP3 file (returns filename only)
+            String mp3Filename = fileStorageService.storeSong(mp3File);
+
+            // Get full paths for metadata operations
+            String mp3FullPath = fileStorageService.getSongFullPath(mp3Filename);
+            String coverArtFullPath = fileStorageService.getCoverArtFullPath(album.getCoverArtPath());
 
             // Set all metadata and embed cover art in a single operation (much faster - 3x speed improvement)
-            mp3MetadataService.setAllMetadata(mp3FilePath, songTitle, songArtist, featuredArtists, producer, trackNumber,
-                                            album.getTitle(), album.getArtist(), album.getCoverArtPath());
+            mp3MetadataService.setAllMetadata(mp3FullPath, songTitle, songArtist, featuredArtists, producer, trackNumber,
+                                            album.getTitle(), album.getArtist(), coverArtFullPath);
 
-            // Create song
-            Song song = new Song(songTitle, songArtist, featuredArtists, producer, trackNumber, mp3FilePath, album.getCoverArtPath());
+            // Create song - store only filename in database
+            Song song = new Song(songTitle, songArtist, featuredArtists, producer, trackNumber, mp3Filename, album.getCoverArtPath());
             song.setAlbum(album);
             song = songRepository.save(song);
 
@@ -91,15 +95,19 @@ public class AlbumService {
 
         Album album = albumOpt.get();
 
-        // Store MP3 file
-        String mp3FilePath = fileStorageService.storeSong(mp3File);
+        // Store MP3 file (returns filename only)
+        String mp3Filename = fileStorageService.storeSong(mp3File);
+
+        // Get full paths for metadata operations
+        String mp3FullPath = fileStorageService.getSongFullPath(mp3Filename);
+        String coverArtFullPath = fileStorageService.getCoverArtFullPath(album.getCoverArtPath());
 
         // Set all metadata and embed cover art in a single operation (much faster - 3x speed improvement)
-        mp3MetadataService.setAllMetadata(mp3FilePath, title, artist, featuredArtists, producer, trackNumber,
-                                        album.getTitle(), album.getArtist(), album.getCoverArtPath());
+        mp3MetadataService.setAllMetadata(mp3FullPath, title, artist, featuredArtists, producer, trackNumber,
+                                        album.getTitle(), album.getArtist(), coverArtFullPath);
 
-        // Create song
-        Song song = new Song(title, artist, featuredArtists, producer, trackNumber, mp3FilePath, album.getCoverArtPath());
+        // Create song - store only filename in database
+        Song song = new Song(title, artist, featuredArtists, producer, trackNumber, mp3Filename, album.getCoverArtPath());
         song.setAlbum(album);
         song = songRepository.save(song);
 

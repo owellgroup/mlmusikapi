@@ -100,6 +100,40 @@ public class FileStorageService {
     }
     
     /**
+     * Get the full path for a song filename
+     * @param filename The filename (e.g., "uuid.mp3")
+     * @return Full path to the file
+     */
+    public String getSongFullPath(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return null;
+        }
+        // If it's already a full path, return as-is
+        if (filename.contains("/") || filename.contains("\\")) {
+            return filename;
+        }
+        // Otherwise, construct the full path
+        return Paths.get(songsDir).resolve(filename).toString();
+    }
+
+    /**
+     * Get the full path for a cover art filename
+     * @param filename The filename (e.g., "uuid.jpg")
+     * @return Full path to the file
+     */
+    public String getCoverArtFullPath(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return null;
+        }
+        // If it's already a full path, return as-is
+        if (filename.contains("/") || filename.contains("\\")) {
+            return filename;
+        }
+        // Otherwise, construct the full path
+        return Paths.get(coverArtDir).resolve(filename).toString();
+    }
+
+    /**
      * Extract filename from a path, handling both Windows and Unix paths
      */
     private String extractFilename(String path) {

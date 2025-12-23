@@ -34,18 +34,22 @@ public class SongService {
 
     public Song createSingleTrack(String title, String artist, String featuredArtists,
                                  String producer, MultipartFile coverArt, MultipartFile mp3File) throws Exception {
-        // Store cover art
-        String coverArtPath = fileStorageService.storeCoverArt(coverArt);
+        // Store cover art (returns filename only)
+        String coverArtFilename = fileStorageService.storeCoverArt(coverArt);
 
-        // Store MP3 file
-        String mp3FilePath = fileStorageService.storeSong(mp3File);
+        // Store MP3 file (returns filename only)
+        String mp3Filename = fileStorageService.storeSong(mp3File);
+
+        // Get full paths for metadata operations
+        String mp3FullPath = fileStorageService.getSongFullPath(mp3Filename);
+        String coverArtFullPath = fileStorageService.getCoverArtFullPath(coverArtFilename);
 
         // Set all metadata and embed cover art in a single operation (much faster)
-        mp3MetadataService.setAllMetadata(mp3FilePath, title, artist, featuredArtists, producer, null, 
-                                         null, null, coverArtPath);
+        mp3MetadataService.setAllMetadata(mp3FullPath, title, artist, featuredArtists, producer, null, 
+                                         null, null, coverArtFullPath);
 
-        // Create song (no album, no track number)
-        Song song = new Song(title, artist, featuredArtists, producer, null, mp3FilePath, coverArtPath);
+        // Create song - store only filenames in database for consistency
+        Song song = new Song(title, artist, featuredArtists, producer, null, mp3Filename, coverArtFilename);
         return songRepository.save(song);
     }
 
