@@ -43,7 +43,8 @@ public class FileStorageService {
         String filename = UUID.randomUUID().toString() + extension;
         Path targetLocation = Paths.get(coverArtDir).resolve(filename);
         Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-        return targetLocation.toString();
+        // Return only the filename for consistent storage in database
+        return filename;
     }
 
     public String storeSong(MultipartFile file) throws IOException {
@@ -55,11 +56,62 @@ public class FileStorageService {
         String filename = UUID.randomUUID().toString() + extension;
         Path targetLocation = Paths.get(songsDir).resolve(filename);
         Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-        return targetLocation.toString();
+        // Return only the filename for consistent storage in database
+        return filename;
     }
 
     public File getFile(String filePath) {
-        return new File(filePath);
+        // Handle both old full paths and new filename-only paths
+        if (filePath == null || filePath.isEmpty()) {
+            return null;
+        }
+        
+        // If it's already a full path (contains directory separators), use it as-is
+        if (filePath.contains("/") || filePath.contains("\\")) {
+            File file = new File(filePath);
+            if (file.exists()) {
+                return file;
+            }
+            // Try to extract filename and look in standard locations
+            String filename = extractFilename(filePath);
+            // Try songs directory first
+            File songFile = new File(songsDir, filename);
+            if (songFile.exists()) {
+                return songFile;
+            }
+            // Try cover-art directory
+            File coverFile = new File(coverArtDir, filename);
+            if (coverFile.exists()) {
+                return coverFile;
+            }
+        } else {
+            // It's just a filename, try standard locations
+            File songFile = new File(songsDir, filePath);
+            if (songFile.exists()) {
+                return songFile;
+            }
+            File coverFile = new File(coverArtDir, filePath);
+            if (coverFile.exists()) {
+                return coverFile;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Extract filename from a path, handling both Windows and Unix paths
+     */
+    private String extractFilename(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String normalized = path.replace("\\", "/");
+        int lastSlash = normalized.lastIndexOf("/");
+        if (lastSlash >= 0 && lastSlash < normalized.length() - 1) {
+            return normalized.substring(lastSlash + 1);
+        }
+        return path;
     }
 }
 

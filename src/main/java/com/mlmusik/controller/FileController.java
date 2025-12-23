@@ -31,14 +31,27 @@ public class FileController {
     @GetMapping("/cover-art/{filename:.+}")
     public ResponseEntity<Resource> getCoverArt(@PathVariable String filename) {
         try {
-            File coverArtFile = new File("./uploads/cover-art/" + filename);
-            if (coverArtFile.exists()) {
-                Resource resource = new FileSystemResource(coverArtFile);
-                String contentType = getContentType(filename);
-                return ResponseEntity.ok()
-                        .contentType(MediaType.parseMediaType(contentType))
-                        .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
-                        .body(resource);
+            // Extract just the filename from the path (handle old paths with full directory structure)
+            String actualFilename = extractFilename(filename);
+            
+            // Try multiple possible locations
+            String[] possiblePaths = {
+                "./uploads/cover-art/" + actualFilename,
+                "uploads/cover-art/" + actualFilename,
+                actualFilename, // In case it's already a full path
+                filename // Original path as-is
+            };
+            
+            for (String path : possiblePaths) {
+                File coverArtFile = new File(path);
+                if (coverArtFile.exists() && coverArtFile.isFile()) {
+                    Resource resource = new FileSystemResource(coverArtFile);
+                    String contentType = getContentType(actualFilename);
+                    return ResponseEntity.ok()
+                            .contentType(MediaType.parseMediaType(contentType))
+                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                            .body(resource);
+                }
             }
         } catch (Exception e) {
             // Fall through to not found
@@ -53,14 +66,27 @@ public class FileController {
     @GetMapping("/songs/{filename:.+}")
     public ResponseEntity<Resource> getSongFile(@PathVariable String filename) {
         try {
-            File songFile = new File("./uploads/songs/" + filename);
-            if (songFile.exists()) {
-                Resource resource = new FileSystemResource(songFile);
-                return ResponseEntity.ok()
-                        .contentType(MediaType.parseMediaType("audio/mpeg"))
-                        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
-                        .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
-                        .body(resource);
+            // Extract just the filename from the path (handle old paths with full directory structure)
+            String actualFilename = extractFilename(filename);
+            
+            // Try multiple possible locations
+            String[] possiblePaths = {
+                "./uploads/songs/" + actualFilename,
+                "uploads/songs/" + actualFilename,
+                actualFilename, // In case it's already a full path
+                filename // Original path as-is
+            };
+            
+            for (String path : possiblePaths) {
+                File songFile = new File(path);
+                if (songFile.exists() && songFile.isFile()) {
+                    Resource resource = new FileSystemResource(songFile);
+                    return ResponseEntity.ok()
+                            .contentType(MediaType.parseMediaType("audio/mpeg"))
+                            .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                            .body(resource);
+                }
             }
         } catch (Exception e) {
             // Fall through to not found
@@ -76,15 +102,28 @@ public class FileController {
         Optional<Song> songOpt = songRepository.findById(songId);
         if (songOpt.isPresent()) {
             Song song = songOpt.get();
-            if (song.getCoverArtPath() != null) {
-                File coverArtFile = new File(song.getCoverArtPath());
-                if (coverArtFile.exists()) {
-                    Resource resource = new FileSystemResource(coverArtFile);
-                    String contentType = getContentType(coverArtFile.getName());
-                    return ResponseEntity.ok()
-                            .contentType(MediaType.parseMediaType(contentType))
-                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
-                            .body(resource);
+            if (song.getCoverArtPath() != null && !song.getCoverArtPath().isEmpty()) {
+                String coverArtPath = song.getCoverArtPath();
+                String filename = extractFilename(coverArtPath);
+                
+                // Try multiple possible locations
+                String[] possiblePaths = {
+                    coverArtPath, // Original path as-is
+                    "./uploads/cover-art/" + filename,
+                    "uploads/cover-art/" + filename,
+                    filename
+                };
+                
+                for (String path : possiblePaths) {
+                    File coverArtFile = new File(path);
+                    if (coverArtFile.exists() && coverArtFile.isFile()) {
+                        Resource resource = new FileSystemResource(coverArtFile);
+                        String contentType = getContentType(filename);
+                        return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType(contentType))
+                                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                                .body(resource);
+                    }
                 }
             }
         }
@@ -106,6 +145,22 @@ public class FileController {
                     .body(resource);
         }
         return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * Extract filename from a path, handling both Windows and Unix paths
+     */
+    private String extractFilename(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        // Handle both forward and backslashes
+        String normalized = path.replace("\\", "/");
+        int lastSlash = normalized.lastIndexOf("/");
+        if (lastSlash >= 0 && lastSlash < normalized.length() - 1) {
+            return normalized.substring(lastSlash + 1);
+        }
+        return path;
     }
 
     private String getContentType(String filename) {
