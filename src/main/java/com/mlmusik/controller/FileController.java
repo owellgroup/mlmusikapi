@@ -6,12 +6,14 @@ import com.mlmusik.service.SongService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Optional;
 
 @RestController
@@ -60,11 +62,12 @@ public class FileController {
     }
 
     /**
-     * Serve MP3 file by path for playback (streaming)
+     * Serve MP3 file by path for playback (streaming with range support)
      * Example: /api/uploads/songs/uuid.mp3
      */
     @GetMapping("/songs/{filename:.+}")
-    public ResponseEntity<Resource> getSongFile(@PathVariable String filename) {
+    public ResponseEntity<?> getSongFile(@PathVariable String filename, 
+                                         @RequestHeader(value = "Range", required = false) String rangeHeader) {
         try {
             // Extract just the filename from the path (handle old paths with full directory structure)
             String actualFilename = extractFilename(filename);
@@ -81,10 +84,67 @@ public class FileController {
                 File songFile = new File(path);
                 if (songFile.exists() && songFile.isFile()) {
                     Resource resource = new FileSystemResource(songFile);
+                    long fileLength = songFile.length();
+                    
+                    // Support range requests for streaming (enables instant playback)
+                    if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                        try {
+                            String[] ranges = rangeHeader.substring(6).split("-");
+                            long rangeStart = Long.parseLong(ranges[0]);
+                            long rangeEnd = ranges.length > 1 && !ranges[1].isEmpty() 
+                                ? Long.parseLong(ranges[1]) 
+                                : fileLength - 1;
+                            
+                            // Ensure range is valid
+                            if (rangeStart < 0) rangeStart = 0;
+                            if (rangeEnd >= fileLength) rangeEnd = fileLength - 1;
+                            if (rangeStart > rangeEnd) {
+                                rangeStart = 0;
+                                rangeEnd = fileLength - 1;
+                            }
+                            
+                            long contentLength = rangeEnd - rangeStart + 1;
+                            final long finalRangeStart = rangeStart;
+                            final long finalRangeEnd = rangeEnd;
+                            
+                            StreamingResponseBody stream = outputStream -> {
+                                try (InputStream inputStream = new FileInputStream(songFile)) {
+                                    inputStream.skip(finalRangeStart);
+                                    byte[] buffer = new byte[8192];
+                                    long bytesToRead = contentLength;
+                                    long bytesRead = 0;
+                                    
+                                    while (bytesToRead > 0 && (bytesRead = inputStream.read(buffer, 0, 
+                                            (int) Math.min(buffer.length, bytesToRead))) != -1) {
+                                        outputStream.write(buffer, 0, (int) bytesRead);
+                                        bytesToRead -= bytesRead;
+                                    }
+                                } catch (IOException e) {
+                                    throw new RuntimeException("Error streaming file", e);
+                                }
+                            };
+                            
+                            return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                                    .contentType(MediaType.parseMediaType("audio/mpeg"))
+                                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                                    .header(HttpHeaders.CONTENT_RANGE, 
+                                        String.format("bytes %d-%d/%d", finalRangeStart, finalRangeEnd, fileLength))
+                                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength))
+                                    .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                                    .header(HttpHeaders.CONNECTION, "keep-alive")
+                                    .body(stream);
+                        } catch (Exception e) {
+                            // If range parsing fails, fall through to full file
+                        }
+                    }
+                    
+                    // Full file response (no range request)
                     return ResponseEntity.ok()
                             .contentType(MediaType.parseMediaType("audio/mpeg"))
                             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                            .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileLength))
                             .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                            .header(HttpHeaders.CONNECTION, "keep-alive")
                             .body(resource);
                 }
             }
@@ -131,17 +191,75 @@ public class FileController {
     }
 
     /**
-     * Serve MP3 file for playback by song ID (streaming)
+     * Serve MP3 file for playback by song ID (streaming with range support)
      */
     @GetMapping("/songs/song/{songId}")
-    public ResponseEntity<Resource> getSongFileBySongId(@PathVariable Long songId) {
+    public ResponseEntity<?> getSongFileBySongId(@PathVariable Long songId,
+                                                 @RequestHeader(value = "Range", required = false) String rangeHeader) {
         File songFile = songService.getSongFile(songId);
         if (songFile != null && songFile.exists()) {
             Resource resource = new FileSystemResource(songFile);
+            long fileLength = songFile.length();
+            
+            // Support range requests for streaming (enables instant playback)
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                try {
+                    String[] ranges = rangeHeader.substring(6).split("-");
+                    long rangeStart = Long.parseLong(ranges[0]);
+                    long rangeEnd = ranges.length > 1 && !ranges[1].isEmpty() 
+                        ? Long.parseLong(ranges[1]) 
+                        : fileLength - 1;
+                    
+                    // Ensure range is valid
+                    if (rangeStart < 0) rangeStart = 0;
+                    if (rangeEnd >= fileLength) rangeEnd = fileLength - 1;
+                    if (rangeStart > rangeEnd) {
+                        rangeStart = 0;
+                        rangeEnd = fileLength - 1;
+                    }
+                    
+                    long contentLength = rangeEnd - rangeStart + 1;
+                    final long finalRangeStart = rangeStart;
+                    final long finalRangeEnd = rangeEnd;
+                    
+                    StreamingResponseBody stream = outputStream -> {
+                        try (InputStream inputStream = new FileInputStream(songFile)) {
+                            inputStream.skip(finalRangeStart);
+                            byte[] buffer = new byte[8192];
+                            long bytesToRead = contentLength;
+                            long bytesRead = 0;
+                            
+                            while (bytesToRead > 0 && (bytesRead = inputStream.read(buffer, 0, 
+                                    (int) Math.min(buffer.length, bytesToRead))) != -1) {
+                                outputStream.write(buffer, 0, (int) bytesRead);
+                                bytesToRead -= bytesRead;
+                            }
+                        } catch (IOException e) {
+                            throw new RuntimeException("Error streaming file", e);
+                        }
+                    };
+                    
+                    return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                            .contentType(MediaType.parseMediaType("audio/mpeg"))
+                            .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                            .header(HttpHeaders.CONTENT_RANGE, 
+                                String.format("bytes %d-%d/%d", finalRangeStart, finalRangeEnd, fileLength))
+                            .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength))
+                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                            .header(HttpHeaders.CONNECTION, "keep-alive")
+                            .body(stream);
+                } catch (Exception e) {
+                    // If range parsing fails, fall through to full file response
+                }
+            }
+            
+            // Full file response (no range request)
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("audio/mpeg"))
                     .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileLength))
                     .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                    .header(HttpHeaders.CONNECTION, "keep-alive")
                     .body(resource);
         }
         return ResponseEntity.notFound().build();
