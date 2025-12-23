@@ -3,6 +3,7 @@ package com.mlmusik.controller;
 import com.mlmusik.model.Song;
 import com.mlmusik.repository.SongRepository;
 import com.mlmusik.service.SongService;
+import com.mlmusik.service.FileStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -25,6 +26,9 @@ public class FileController {
 
     @Autowired
     private SongRepository songRepository;
+    
+    @Autowired
+    private FileStorageService fileStorageService;
 
     /**
      * Serve cover art image by path
@@ -47,12 +51,12 @@ public class FileController {
             for (String path : possiblePaths) {
                 File coverArtFile = new File(path);
                 if (coverArtFile.exists() && coverArtFile.isFile()) {
-                    Resource resource = new FileSystemResource(coverArtFile);
+                Resource resource = new FileSystemResource(coverArtFile);
                     String contentType = getContentType(actualFilename);
-                    return ResponseEntity.ok()
-                            .contentType(MediaType.parseMediaType(contentType))
-                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
-                            .body(resource);
+                return ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType(contentType))
+                        .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                        .body(resource);
                 }
             }
         } catch (Exception e) {
@@ -72,22 +76,58 @@ public class FileController {
             // Extract just the filename from the path (handle old paths with full directory structure)
             String actualFilename = extractFilename(filename);
             
-            // Try multiple possible locations
-            String[] possiblePaths = {
-                "./uploads/songs/" + actualFilename,
-                "uploads/songs/" + actualFilename,
-                actualFilename, // In case it's already a full path
-                filename // Original path as-is
-            };
+            // Use FileStorageService to get the correct path
+            String fullPath = fileStorageService.getSongFullPath(actualFilename);
+            File songFile = fullPath != null ? new File(fullPath) : null;
             
-            for (String path : possiblePaths) {
-                File songFile = new File(path);
-                if (songFile.exists() && songFile.isFile()) {
-                    Resource resource = new FileSystemResource(songFile);
-                    long fileLength = songFile.length();
-                    
-                    // Support range requests for streaming (enables instant playback)
-                    if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            // Log for debugging
+            System.out.println("=== File Request Debug ===");
+            System.out.println("Requested filename: " + filename);
+            System.out.println("Extracted filename: " + actualFilename);
+            System.out.println("Primary path from service: " + fullPath);
+            System.out.println("File exists: " + (songFile != null && songFile.exists()));
+            if (songFile != null) {
+                System.out.println("File path: " + songFile.getAbsolutePath());
+                System.out.println("Is file: " + songFile.isFile());
+            }
+            
+            // If file doesn't exist at expected location, try alternative paths
+            if (songFile == null || !songFile.exists() || !songFile.isFile()) {
+                String currentDir = System.getProperty("user.dir");
+                System.out.println("Current working directory: " + currentDir);
+                
+                String[] possiblePaths = {
+                    currentDir + "/uploads/songs/" + actualFilename,
+                    currentDir + "\\uploads\\songs\\" + actualFilename, // Windows path
+                    "./uploads/songs/" + actualFilename,
+                    "uploads/songs/" + actualFilename,
+                    actualFilename, // In case it's already a full path
+                    filename // Original path as-is
+                };
+                
+                System.out.println("Trying alternative paths...");
+                for (String path : possiblePaths) {
+                    File testFile = new File(path);
+                    String absPath = testFile.getAbsolutePath();
+                    boolean exists = testFile.exists();
+                    boolean isFile = testFile.isFile();
+                    System.out.println("  Checking: " + path);
+                    System.out.println("    Absolute: " + absPath);
+                    System.out.println("    Exists: " + exists);
+                    System.out.println("    Is file: " + isFile);
+                    if (exists && isFile) {
+                        songFile = testFile;
+                        System.out.println("  ✓ Found file at: " + absPath);
+                        break;
+                    }
+                }
+            }
+            
+            if (songFile != null && songFile.exists() && songFile.isFile()) {
+                long fileLength = songFile.length();
+                
+                // Support range requests for streaming (enables instant playback)
+                if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                         try {
                             String[] ranges = rangeHeader.substring(6).split("-");
                             long rangeStart = Long.parseLong(ranges[0]);
@@ -107,9 +147,20 @@ public class FileController {
                             final long finalRangeStart = rangeStart;
                             final long finalRangeEnd = rangeEnd;
                             
+                            final File finalSongFile = songFile;
                             StreamingResponseBody stream = outputStream -> {
-                                try (InputStream inputStream = new FileInputStream(songFile)) {
-                                    inputStream.skip(finalRangeStart);
+                                try (InputStream inputStream = new FileInputStream(finalSongFile)) {
+                                    long skipped = inputStream.skip(finalRangeStart);
+                                    if (skipped < finalRangeStart) {
+                                        // If skip didn't work, read and discard
+                                        long remaining = finalRangeStart - skipped;
+                                        byte[] skipBuffer = new byte[8192];
+                                        while (remaining > 0) {
+                                            long read = inputStream.read(skipBuffer, 0, (int) Math.min(skipBuffer.length, remaining));
+                                            if (read <= 0) break;
+                                            remaining -= read;
+                                        }
+                                    }
                                     byte[] buffer = new byte[8192];
                                     long bytesToRead = contentLength;
                                     long bytesRead = 0;
@@ -133,24 +184,38 @@ public class FileController {
                                     .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
                                     .header(HttpHeaders.CONNECTION, "keep-alive")
                                     .body(stream);
-                        } catch (Exception e) {
-                            // If range parsing fails, fall through to full file
-                        }
+                    } catch (Exception e) {
+                        // If range parsing fails, fall through to full file
                     }
-                    
-                    // Full file response (no range request)
-                    return ResponseEntity.ok()
-                            .contentType(MediaType.parseMediaType("audio/mpeg"))
-                            .header(HttpHeaders.ACCEPT_RANGES, "bytes")
-                            .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileLength))
-                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
-                            .header(HttpHeaders.CONNECTION, "keep-alive")
-                            .body(resource);
                 }
+                
+                // Full file response (no range request)
+                Resource resource = new FileSystemResource(songFile);
+                return ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType("audio/mpeg"))
+                        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                        .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileLength))
+                        .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+                        .header(HttpHeaders.CONNECTION, "keep-alive")
+                        .body(resource);
             }
         } catch (Exception e) {
-            // Fall through to not found
+            // Log error for debugging
+            System.err.println("Error serving song file: " + filename);
+            System.err.println("Exception: " + e.getMessage());
+            e.printStackTrace();
         }
+        
+        // Log that file was not found
+        System.err.println("File not found: " + filename);
+        System.err.println("Current directory: " + System.getProperty("user.dir"));
+        File uploadsDir = new File("./uploads/songs");
+        System.err.println("Uploads directory exists: " + uploadsDir.exists());
+        if (uploadsDir.exists()) {
+            File[] files = uploadsDir.listFiles();
+            System.err.println("Files in uploads/songs: " + (files != null ? files.length : 0));
+        }
+        
         return ResponseEntity.notFound().build();
     }
 
@@ -177,12 +242,12 @@ public class FileController {
                 for (String path : possiblePaths) {
                     File coverArtFile = new File(path);
                     if (coverArtFile.exists() && coverArtFile.isFile()) {
-                        Resource resource = new FileSystemResource(coverArtFile);
+                    Resource resource = new FileSystemResource(coverArtFile);
                         String contentType = getContentType(filename);
-                        return ResponseEntity.ok()
-                                .contentType(MediaType.parseMediaType(contentType))
-                                .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
-                                .body(resource);
+                    return ResponseEntity.ok()
+                            .contentType(MediaType.parseMediaType(contentType))
+                            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000")
+                            .body(resource);
                     }
                 }
             }
@@ -196,13 +261,13 @@ public class FileController {
     @GetMapping("/songs/song/{songId}")
     public ResponseEntity<?> getSongFileBySongId(@PathVariable Long songId,
                                                  @RequestHeader(value = "Range", required = false) String rangeHeader) {
+        try {
         File songFile = songService.getSongFile(songId);
         if (songFile != null && songFile.exists()) {
-            Resource resource = new FileSystemResource(songFile);
-            long fileLength = songFile.length();
-            
-            // Support range requests for streaming (enables instant playback)
-            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                long fileLength = songFile.length();
+                
+                // Support range requests for streaming (enables instant playback)
+                if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                 try {
                     String[] ranges = rangeHeader.substring(6).split("-");
                     long rangeStart = Long.parseLong(ranges[0]);
@@ -222,9 +287,20 @@ public class FileController {
                     final long finalRangeStart = rangeStart;
                     final long finalRangeEnd = rangeEnd;
                     
+                    final File finalSongFile = songFile;
                     StreamingResponseBody stream = outputStream -> {
-                        try (InputStream inputStream = new FileInputStream(songFile)) {
-                            inputStream.skip(finalRangeStart);
+                        try (InputStream inputStream = new FileInputStream(finalSongFile)) {
+                            long skipped = inputStream.skip(finalRangeStart);
+                            if (skipped < finalRangeStart) {
+                                // If skip didn't work, read and discard
+                                long remaining = finalRangeStart - skipped;
+                                byte[] skipBuffer = new byte[8192];
+                                while (remaining > 0) {
+                                    long read = inputStream.read(skipBuffer, 0, (int) Math.min(skipBuffer.length, remaining));
+                                    if (read <= 0) break;
+                                    remaining -= read;
+                                }
+                            }
                             byte[] buffer = new byte[8192];
                             long bytesToRead = contentLength;
                             long bytesRead = 0;
@@ -246,14 +322,16 @@ public class FileController {
                                 String.format("bytes %d-%d/%d", finalRangeStart, finalRangeEnd, fileLength))
                             .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength))
                             .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
-                            .header(HttpHeaders.CONNECTION, "keep-alive")
-                            .body(stream);
+                    .header(HttpHeaders.CONNECTION, "keep-alive")
+                    .body(stream);
                 } catch (Exception e) {
                     // If range parsing fails, fall through to full file response
+                    System.err.println("Range parsing error: " + e.getMessage());
                 }
             }
             
             // Full file response (no range request)
+            Resource resource = new FileSystemResource(songFile);
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("audio/mpeg"))
                     .header(HttpHeaders.ACCEPT_RANGES, "bytes")
@@ -261,6 +339,11 @@ public class FileController {
                     .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
                     .header(HttpHeaders.CONNECTION, "keep-alive")
                     .body(resource);
+            }
+        } catch (Exception e) {
+            System.err.println("Error serving song file by ID: " + songId);
+            System.err.println("Exception: " + e.getMessage());
+            e.printStackTrace();
         }
         return ResponseEntity.notFound().build();
     }

@@ -113,7 +113,15 @@ public class FileStorageService {
             return filename;
         }
         // Otherwise, construct the full path
-        return Paths.get(songsDir).resolve(filename).toString();
+        // Ensure directory exists
+        initDirectories();
+        Path fullPath = Paths.get(songsDir).resolve(filename);
+        // Convert to absolute path
+        File file = fullPath.toFile();
+        if (!file.isAbsolute()) {
+            file = file.getAbsoluteFile();
+        }
+        return file.getAbsolutePath();
     }
 
     /**
